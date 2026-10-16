@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Custom PC Builder</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --glass-bg: rgba(30, 41, 59, 0.7);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --neon-accent: #06b6d4;
+            --neon-glow: rgba(6, 182, 212, 0.5);
+            --neon-valid: #22c55e;
+            --neon-valid-glow: rgba(34, 197, 94, 0.6);
+            --neon-invalid: #ef4444;
+            --font-main: 'Inter', sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            background-image: 
+                radial-gradient(circle at 15% 50%, rgba(6, 182, 212, 0.1), transparent 25%),
+                radial-gradient(circle at 85% 30%, rgba(139, 92, 246, 0.1), transparent 25%);
+            color: #f8fafc;
+            font-family: var(--font-main);
+            margin: 0;
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            user-select: none;
+        }
+
+        /* Glassmorphism */
+        .glass {
+            background: var(--glass-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.4); }
+
+        /* Typography */
+        .font-mono { font-family: var(--font-mono); }
+        .text-neon { color: var(--neon-accent); text-shadow: 0 0 10px var(--neon-glow); }
+
+        /* Layout */
+        #app-container { display: flex; width: 100%; height: 100%; padding: 1.5rem; gap: 1.5rem; }
+        #sidebar { width: 380px; display: flex; flex-direction: column; flex-shrink: 0; z-index: 30; overflow: hidden; }
+        #canvas-area { flex-grow: 1; position: relative; display: flex; justify-content: center; align-items: center; }
+
+        /* Tabs */
+        .tab-btn {
+            padding: 0.75rem 0.5rem; border: none; background: transparent; color: #94a3b8;
+            font-weight: 600; cursor: pointer; transition: all 0.2s; flex: 1; text-align: center;
+            border-bottom: 2px solid transparent; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.5px;
+        }
+        .tab-btn.active { color: white; border-bottom-color: var(--neon-accent); text-shadow: 0 0 8px var(--neon-glow); background: rgba(6, 182, 212, 0.1); }
+        .tab-btn:hover:not(.active) { color: #e2e8f0; background: rgba(255,255,255,0.05); }
+
+        /* Catalog Items */
+        #catalog-list { flex-grow: 1; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: 0.75rem; }
+        .part-card {
+            background: rgba(15, 23, 42, 0.8); border: 1px solid var(--glass-border); border-radius: 12px; padding: 1rem;
+            cursor: grab; transition: all 0.2s; position: relative;
+        }
+        .part-card:active { cursor: grabbing; transform: scale(0.98); }
+        .part-card:hover:not(.part-disabled) { transform: translateY(-2px); border-color: rgba(255,255,255,0.3); box-shadow: 0 5px 15px rgba(0,0,0,0.4); }
+        .part-disabled { opacity: 0.4; cursor: not-allowed; pointer-events: none; filter: grayscale(0.8); }
+
+        /* PC Case Canvas */
+        #case-frame {
+            width: 650px; height: 800px; background: rgba(0, 0, 0, 0.5);
+            border: 4px solid #334155; border-radius: 20px;
+            box-shadow: inset 0 0 50px rgba(0,0,0,0.8), 0 20px 40px rgba(0,0,0,0.5);
+            display: flex; flex-direction: column; position: relative; transition: all 0.3s;
+        }
+
+        /* --- Drop Zones Base --- */
+        .drop-zone {
+            position: absolute; display: flex; align-items: center; justify-content: center;
+            border: 2px dashed transparent; border-radius: 8px; transition: all 0.2s; box-sizing: border-box;
+        }
+        
+        /* Show subtle borders for empty slots when they are active */
+        .drop-zone.active-slot:not(.has-item) {
+            border-color: rgba(148, 163, 184, 0.3); background: rgba(0,0,0,0.3);
+        }
+
+        /* Highlight during valid drag */
+        body.is-dragging .drop-zone.valid-target {
+            border-color: var(--neon-valid); background: rgba(34, 197, 94, 0.15);
+            box-shadow: 0 0 20px var(--neon-valid-glow); z-index: 50;
+        }
+        body.is-dragging .drop-zone.valid-target::after {
+            content: "DROP HERE"; position: absolute; top: -30px; left: 50%; transform: translateX(-50%);
+            background: var(--neon-valid); color: black; padding: 4px 10px; border-radius: 12px;
+            font-size: 0.75rem; font-weight: bold; font-family: var(--font-mono); white-space: nowrap;
+            animation: bounce 1s infinite; pointer-events: none;
+        }
+
+        /* --- Specific Slots Layout --- */
+        #motherboard-zone { top: 20px; left: 20px; right: 20px; bottom: 150px; border-radius: 12px; }
+        #motherboard-zone:not(.has-mobo) { border: 2px dashed rgba(148, 163, 184, 0.5); background: rgba(0,0,0,0.2); }
+        
+        #inner-slots { position: absolute; top:0; left:0; width:100%; height:100%; z-index: 10; display: none; }
+        .has-mobo #inner-slots { display: block; }
+
+        #slot-cpu { top: 18%; left: 35%; width: 20%; height: 18%; }
+        
+        #slot-ram-container { top: 12%; right: 5%; width: 25%; height: 35%; display: flex; justify-content: space-between; position: absolute; z-index: 10; }
+        .slot-ram { position: relative; width: 22%; height: 100%; border-radius: 4px; }
+        
+        #slot-storage { top: 42%; left: 35%; width: 20%; height: 8%; }
+        
+        #slot-gpu { top: 55%; left: 8%; width: 85%; height: 20%; }
+
+        #psu-shroud {
+            position: absolute; bottom: 0; left: 0; width: 100%; height: 140px;
+            background: linear-gradient(to bottom, #1e293b, #0f172a); border-top: 2px solid #334155;
+            border-radius: 0 0 16px 16px; padding: 1.5rem; display: flex; justify-content: flex-end; align-items: center; z-index: 20;
+        }
+        #slot-psu { position: relative; width: 220px; height: 100px; }
+
+        /* --- Installed Part Visuals --- */
+        .installed-part {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            display: flex; align-items: center; justify-content: center;
+            border-radius: inherit; animation: popIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            font-family: var(--font-mono); font-weight: bold; pointer-events: auto;
+        }
+
+        .part-mobo {
+            background-color: #0f172a;
+            background-image: radial-gradient(#334155 2px, transparent 2px), linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+            background-size: 24px 24px, 48px 48px, 48px 48px;
+            border: 2px solid #475569; box-shadow: inset 0 0 40px rgba(0,0,0,0.8); z-index: 5;
+        }
+        .part-cpu { background: linear-gradient(135deg, #e2e8f0, #94a3b8); border: 3px solid #f8fafc; border-radius: 8px; color: #0f172a; box-shadow: 0 4px 10px rgba(0,0,0,0.5); z-index: 15;}
+        .part-ram { background: linear-gradient(to right, #1e293b, #334155); border: 2px solid #eab308; box-shadow: 0 0 15px rgba(234, 179, 8, 0.6); z-index: 15;}
+        .part-storage { background: #1e293b; border: 2px solid #06b6d4; box-shadow: 0 4px 10px rgba(0,0,0,0.5); border-radius: 6px; z-index: 12;}
+        .part-psu { background: #0f172a; border: 2px solid #64748b; box-shadow: inset 0 0 10px #000, 0 5px 15px rgba(0,0,0,0.6); border-radius: 12px;}
+        
+        .part-gpu {
+            background: linear-gradient(to bottom, #1e293b, #0f172a); border: 3px solid #64748b;
+            border-radius: 16px; box-shadow: 0 15px 30px rgba(0,0,0,0.7); z-index: 20;
+            display: flex; flex-direction: row; justify-content: space-evenly; align-items: center; overflow: hidden;
+        }
+        
+        .gpu-fan {
+            width: 70px; height: 70px; border-radius: 50%; background: #334155; border: 4px solid #475569;
+            position: relative; display: flex; justify-content: center; align-items: center;
+        }
+        .gpu-fan::before, .gpu-fan::after {
+            content: ''; position: absolute; background: rgba(255,255,255,0.15); border-radius: 2px;
+            animation: spin 0.8s linear infinite;
+        }
+        .gpu-fan::before { width: 90%; height: 4px; }
+        .gpu-fan::after { width: 4px; height: 90%; }
+
+        /* Remove Buttons */
+        .remove-btn {
+            position: absolute; top: -10px; right: -10px; background: #ef4444; color: white;
+            width: 24px; height: 24px; border-radius: 50%; border: 2px solid #0f172a; cursor: pointer;
+            display: none; align-items: center; justify-content: center; font-size: 14px; z-index: 100;
+            box-shadow: 0 0 10px rgba(239,68,68,0.5); transition: transform 0.2s;
+        }
+        .remove-btn:hover { transform: scale(1.1); background: #f87171; }
+        .installed-part:hover .remove-btn { display: flex; }
+        
+        /* Special handle for mobo remove button */
+        #mobo-remove { top: 10px; right: 10px; width: 32px; height: 32px; font-size: 18px; }
+        #motherboard-zone.has-mobo:hover > #mobo-remove { display: flex; }
+
+        /* Drag Ghost/Clone */
+        .dragging-clone {
+            position: fixed; pointer-events: none; z-index: 9999; opacity: 0.9; transform: scale(1.05);
+            background: rgba(30, 41, 59, 0.95); padding: 1rem; border-radius: 12px; border: 2px solid var(--neon-accent);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+        }
+
+        /* HUD */
+        #hud { position: absolute; bottom: 2rem; right: -320px; width: 300px; padding: 1.5rem; z-index: 40; transition: right 0.4s ease; }
+        @media (min-width: 1400px) { #hud { right: 2rem; } }
+        .hud-row { display: flex; justify-content: space-between; margin-bottom: 0.75rem; padding-bottom: 0.75rem; border-bottom: 1px solid rgba(255,255,255,0.1); }
+        .hud-row:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+
+        /* Animations */
+        @keyframes popIn { 0% { transform: scale(0.8); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+        @keyframes bounce { 0%, 100% { transform: translateX(-50%) translateY(0); } 50% { transform: translateX(-50%) translateY(-5px); } }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+
+        /* Tooltip */
+        #tooltip {
+            position: fixed; background: rgba(15, 23, 42, 0.95); border: 1px solid var(--neon-accent);
+            padding: 10px 14px; border-radius: 8px; pointer-events: none; opacity: 0; transition: opacity 0.15s;
+            font-size: 0.8rem; z-index: 10000; color: white; box-shadow: 0 5px 15px rgba(0,0,0,0.5); transform: translate(15px, 15px);
+        }
+    </style>
+</head>
+<body>
+
+<div id="app-container">
+    <!-- Sidebar -->
+    <div id="sidebar" class="glass">
+        <div class="p-5 border-b border-[rgba(255,255,255,0.1)] flex justify-between items-center bg-slate-800/40">
+            <h1 class="text-xl font-bold text-neon uppercase tracking-wider flex items-center gap-2">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"></path></svg>
+                Custom PC Builder
+            </h1>
+            <button id="reset-btn" class="text-xs bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white px-3 py-1.5 rounded transition-all font-mono border border-red-500/30">RESET</button>
+        </div>
+        
+        <div class="flex overflow-x-auto border-b border-[rgba(255,255,255,0.1)] bg-slate-900/50" id="tabs-container">
+            <button class="tab-btn active shrink-0" data-category="motherboard">MOBO</button>
+            <button class="tab-btn shrink-0" data-category="cpu">CPU</button>
+            <button class="tab-btn shrink-0" data-category="ram">RAM</button>
+            <button class="tab-btn shrink-0" data-category="gpu">GPU</button>
+            <button class="tab-btn shrink-0" data-category="storage">STORAGE</button>
+            <button class="tab-btn shrink-0" data-category="psu">PSU</button>
+        </div>
+
+        <div id="catalog-list"></div>
+    </div>
+
+    <!-- Main Canvas -->
+    <div id="canvas-area">
+        <div id="case-frame">
+            <!-- Mobo Zone: outer drop zone -->
+            <div id="motherboard-zone" class="drop-zone active-slot" data-type="motherboard">
+                <button id="mobo-remove" class="remove-btn z-50">✕</button>
+                
+                <!-- Inner Slots (Visible only when Mobo is installed) -->
+                <div id="inner-slots">
+                    <div id="slot-cpu" class="drop-zone active-slot" data-type="cpu"></div>
+                    <div id="slot-ram-container">
+                        <div class="drop-zone slot-ram active-slot" data-type="ram" data-index="0"></div>
+                        <div class="drop-zone slot-ram active-slot" data-type="ram" data-index="1"></div>
+                        <div class="drop-zone slot-ram active-slot" data-type="ram" data-index="2"></div>
+                        <div class="drop-zone slot-ram active-slot" data-type="ram" data-index="3"></div>
+                    </div>
+                    <div id="slot-storage" class="drop-zone active-slot" data-type="storage"></div>
+                    <div id="slot-gpu" class="drop-zone active-slot" data-type="gpu"></div>
+                </div>
+            </div>
+
+            <!-- PSU Shroud -->
+            <div id="psu-shroud">
+                <div id="slot-psu" class="drop-zone active-slot" data-type="psu"></div>
+            </div>
+        </div>
+        
+        <!-- HUD (Always visible on large screens) -->
+        <div id="hud" class="glass" style="right: 2rem;">
+            <div class="hud-row items-center">
+                <span class="text-slate-400 text-sm">Total Cost</span>
+                <span class="font-mono text-neon font-bold text-xl" id="hud-price">₹ 0</span>
+            </div>
+            <div class="hud-row items-center">
+                <span class="text-slate-400 text-sm">Power Draw</span>
+                <span class="font-mono text-sm bg-slate-800 px-2 py-1 rounded">
+                    <span id="hud-watt-current" class="text-white">0</span>W / 
+                    <span id="hud-watt-max" class="text-emerald-400">0</span>W
+                </span>
+            </div>
+            <div class="flex flex-col mt-2">
+                <span class="text-slate-500 text-[10px] uppercase tracking-widest mb-1">System Status</span>
+                <div id="hud-status" class="text-xs font-mono text-yellow-400 bg-yellow-400/10 border border-yellow-400/20 p-2 rounded">Awaiting Motherboard...</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="tooltip"></div>
+
+<script>
+    // --- Database ---
+    const DB = {
+        motherboard: [
+            { id: 'mb1', name: 'MSI MAG Z790 TOMAHAWK WIFI', type: 'motherboard', socket: 'LGA1700', ramType: 'DDR5', price: 28500, wattage: 45, img: 'Z790' },
+            { id: 'mb2', name: 'GIGABYTE B650 AORUS ELITE AX', type: 'motherboard', socket: 'AM5', ramType: 'DDR5', price: 21500, wattage: 40, img: 'B650' },
+            { id: 'mb3', name: 'ASUS PRIME B660M-A', type: 'motherboard', socket: 'LGA1700', ramType: 'DDR4', price: 12500, wattage: 30, img: 'B660' }
+        ],
+        cpu: [
+            { id: 'cpu1', name: 'Intel Core i9-14900K', type: 'cpu', socket: 'LGA1700', price: 54000, wattage: 253, img: 'i9' },
+            { id: 'cpu2', name: 'Intel Core i7-14700K', type: 'cpu', socket: 'LGA1700', price: 42000, wattage: 253, img: 'i7' },
+            { id: 'cpu3', name: 'AMD Ryzen 7 7800X3D', type: 'cpu', socket: 'AM5', price: 38500, wattage: 120, img: 'R7' },
+            { id: 'cpu4', name: 'AMD Ryzen 5 7600X', type: 'cpu', socket: 'AM5', price: 22000, wattage: 105, img: 'R5' }
+        ],
+        ram: [
+            { id: 'ram1', name: 'Corsair Vengeance RGB 32GB DDR5 6000', type: 'ram', ramType: 'DDR5', price: 11500, wattage: 12, img: 'RAM' },
+            { id: 'ram2', name: 'G.Skill Trident Z5 64GB DDR5 6400', type: 'ram', ramType: 'DDR5', price: 22000, wattage: 15, img: 'RAM' },
+            { id: 'ram3', name: 'Crucial Ballistix 16GB DDR4 3200', type: 'ram', ramType: 'DDR4', price: 4500, wattage: 8, img: 'RAM' }
+        ],
+        gpu: [
+            { id: 'gpu1', name: 'NVIDIA GeForce RTX 4090 24GB', type: 'gpu', price: 185000, wattage: 450, img: 'RTX 4090' },
+            { id: 'gpu2', name: 'NVIDIA GeForce RTX 4080 Super 16GB', type: 'gpu', price: 105000, wattage: 320, img: 'RTX 4080s' },
+            { id: 'gpu3', name: 'AMD Radeon RX 7900 XTX 24GB', type: 'gpu', price: 98000, wattage: 355, img: 'RX 7900' }
+        ],
+        storage: [
+            { id: 'sto1', name: 'Samsung 990 PRO 2TB NVMe M.2', type: 'storage', price: 17500, wattage: 8, img: '2TB M.2' },
+            { id: 'sto2', name: 'WD Blue SN580 1TB NVMe M.2', type: 'storage', price: 5800, wattage: 5, img: '1TB M.2' }
+        ],
+        psu: [
+            { id: 'psu1', name: 'Seasonic Vertex 1200W 80+ Plat', type: 'psu', maxWattage: 1200, price: 24500, wattage: 0, img: '1200W' },
+            { id: 'psu2', name: 'Corsair RM850e 850W 80+ Gold', type: 'psu', maxWattage: 850, price: 11000, wattage: 0, img: '850W' },
+            { id: 'psu3', name: 'Cooler Master MWE 650W 80+ Bronze', type: 'psu', maxWattage: 650, price: 5500, wattage: 0, img: '650W' }
+        ]
+    };
+
+    // --- State ---
+    let currentCategory = 'motherboard';
+    let buildState = { motherboard: null, cpu: null, ram: [null, null, null, null], gpu: null, storage: null, psu: null };
+    let draggedItem = null;
+    let dragClone = null;
+
+    // --- DOM Elements ---
+    const catalogList = document.getElementById('catalog-list');
+    const tabs = document.querySelectorAll('.tab-btn');
+    const tooltip = document.getElementById('tooltip');
+    const moboZone = document.getElementById('motherboard-zone');
+    const allDropZones = document.querySelectorAll('.drop-zone');
+
+    // --- Init ---
+    function init() {
+        setupTabs();
+        setupDragAndDrop();
+        renderCatalog();
+        updateHUD();
+        
+        document.getElementById('reset-btn').addEventListener('click', () => {
+            if(confirm("Clear current build?")) resetBuild();
+        });
+        
+        // Tooltip logic
+        document.addEventListener('mousemove', (e) => {
+            if (tooltip.style.opacity === '1') {
+                tooltip.style.left = e.clientX + 'px';
+                tooltip.style.top = e.clientY + 'px';
+            }
+        });
+        
+        // Mobo explicit remove handler
+        document.getElementById('mobo-remove').addEventListener('click', (e) => {
+            e.stopPropagation();
+            uninstallPart('motherboard', null);
+        });
+    }
+
+    // --- UI Rendering ---
+    function setupTabs() {
+        tabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                tabs.forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                currentCategory = tab.dataset.category;
+                renderCatalog();
+            });
+        });
+    }
+
+    function renderCatalog() {
+        catalogList.innerHTML = '';
+        const items = DB[currentCategory];
+
+        items.forEach(item => {
+            const isCompatible = checkCompatibility(item);
+            const isInstalled = isPartInstalled(item);
+            
+            const card = document.createElement('div');
+            card.className = `part-card ${(!isCompatible || isInstalled) ? 'part-disabled' : ''}`;
+            card.draggable = isCompatible && !isInstalled;
+            card.dataset.id = item.id;
+            card.dataset.type = item.type;
+
+            let specHtml = '';
+            if (item.type === 'cpu') specHtml = `Socket: ${item.socket}`;
+            else if (item.type === 'motherboard') specHtml = `${item.socket} | ${item.ramType}`;
+            else if (item.type === 'ram') specHtml = `${item.ramType}`;
+            else if (item.type === 'psu') specHtml = `${item.maxWattage}W Max`;
+            else if (item.wattage) specHtml = `Draw: ${item.wattage}W`;
+
+            card.innerHTML = `
+                <div class="flex justify-between items-start mb-2">
+                    <h3 class="font-bold text-sm leading-tight pr-2">${item.name}</h3>
+                    <span class="font-mono text-neon text-xs font-bold whitespace-nowrap">₹${item.price.toLocaleString('en-IN')}</span>
+                </div>
+                <div class="text-[11px] mt-2 flex justify-between items-end">
+                    <span class="font-mono bg-slate-900/50 px-2 py-1 rounded text-slate-300 border border-slate-700/50">${specHtml}</span>
+                    ${!isCompatible ? '<span class="text-red-400 font-semibold px-2 py-1 bg-red-400/10 rounded">Incompatible</span>' : ''}
+                    ${isInstalled ? '<span class="text-emerald-400 font-semibold px-2 py-1 bg-emerald-400/10 rounded">Installed</span>' : ''}
+                </div>
+            `;
+
+            if (isCompatible && !isInstalled) {
+                card.addEventListener('dragstart', handleDragStart);
+                card.addEventListener('dragend', handleDragEnd);
+            }
+
+            catalogList.appendChild(card);
+        });
+    }
+
+    // --- Logic & Compatibility ---
+    function checkCompatibility(item) {
+        if (item.type === 'motherboard') return true; 
+        if (item.type === 'psu') return true;
+        if (!buildState.motherboard) return false; // Everything else needs Mobo
+
+        if (item.type === 'cpu') return item.socket === buildState.motherboard.socket;
+        if (item.type === 'ram') return item.ramType === buildState.motherboard.ramType;
+        
+        return true; 
+    }
+
+    function isPartInstalled(item) {
+        if (item.type === 'ram') return buildState.ram.some(r => r && r.id === item.id);
+        return buildState[item.type] && buildState[item.type].id === item.id;
+    }
+
+    // --- Drag and Drop ---
+    function handleDragStart(e) {
+        draggedItem = DB[this.dataset.type].find(p => p.id === this.dataset.id);
+        
+        // Hide default ghost
+        const img = new Image();
+        img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+        e.dataTransfer.setDragImage(img, 0, 0);
+
+        setTimeout(() => {
+            document.body.classList.add('is-dragging');
+            highlightValidZones(draggedItem.type);
+            
+            // Custom Clone
+            dragClone = this.cloneNode(true);
+            dragClone.classList.add('dragging-clone');
+            document.body.appendChild(dragClone);
+            updateClonePosition(e);
+            
+            document.addEventListener('dragover', updateClonePosition);
+        }, 10);
+    }
+
+    function updateClonePosition(e) {
+        if(dragClone) {
+            dragClone.style.left = (e.clientX + 15) + 'px';
+            dragClone.style.top = (e.clientY + 15) + 'px';
+        }
+    }
+
+    function handleDragEnd(e) {
+        document.body.classList.remove('is-dragging');
+        clearHighlights();
+        draggedItem = null;
+        if(dragClone) { dragClone.remove(); dragClone = null; }
+        document.removeEventListener('dragover', updateClonePosition);
+    }
+
+    function setupDragAndDrop() {
+        allDropZones.forEach(zone => {
+            zone.addEventListener('dragover', (e) => {
+                e.preventDefault(); // Must prevent default to allow drop
+                if (zone.classList.contains('valid-target')) {
+                    e.dataTransfer.dropEffect = 'copy';
+                }
+            });
+
+            zone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                if (!draggedItem || !zone.classList.contains('valid-target')) return;
+                
+                installPart(draggedItem, zone);
+                handleDragEnd(e); 
+            });
+        });
+    }
+
+    function highlightValidZones(type) {
+        allDropZones.forEach(zone => {
+            if (zone.dataset.type === type) {
+                if (type === 'ram') {
+                    const idx = parseInt(zone.dataset.index);
+                    if (!buildState.ram[idx]) zone.classList.add('valid-target');
+                } else if (!zone.classList.contains('has-item') || type === 'motherboard') {
+                    // Highlight if empty. For Mobo, allow dropping over existing to replace.
+                    zone.classList.add('valid-target');
+                }
+            }
+        });
+    }
+
+    function clearHighlights() {
+        allDropZones.forEach(z => z.classList.remove('valid-target'));
+    }
+
+    // --- Installation ---
+    function installPart(item, zone) {
+        // Handle Mobo Swap logic
+        if (item.type === 'motherboard' && buildState.motherboard && buildState.motherboard.id !== item.id) {
+            if(buildState.cpu && buildState.cpu.socket !== item.socket) uninstallPart('cpu', null);
+            if(buildState.ram[0] && buildState.ram[0].ramType !== item.ramType) {
+                for(let i=0; i<4; i++) uninstallPart('ram', i);
+            }
+        }
+
+        // Update State
+        if (item.type === 'ram') {
+            const idx = parseInt(zone.dataset.index);
+            buildState.ram[idx] = item;
+            renderInstalledPart(item, zone, idx);
+        } else {
+            buildState[item.type] = item;
+            renderInstalledPart(item, zone, null);
+        }
+
+        // Visual Updates for Mobo
+        if (item.type === 'motherboard') {
+            moboZone.classList.add('has-mobo');
+        }
+
+        updateHUD();
+        renderCatalog();
+    }
+
+    function renderInstalledPart(item, zone, index) {
+        zone.classList.add('has-item');
+        
+        // Clear previous item visually if not mobo (mobo is special)
+        if (item.type !== 'motherboard') {
+            zone.innerHTML = '';
+        } else {
+            const existingMobo = zone.querySelector('.part-mobo');
+            if (existingMobo) existingMobo.remove();
+        }
+
+        const el = document.createElement('div');
+        el.className = `installed-part part-${item.type}`;
+        
+        let innerHTML = '';
+        if (item.type === 'motherboard') {
+            innerHTML = `<div class="absolute inset-0 flex items-center justify-center pointer-events-none opacity-20 text-3xl tracking-widest text-white">${item.img}</div>`;
+        } else if (item.type === 'gpu') {
+            innerHTML = `
+                <div class="gpu-fan"></div><div class="gpu-fan"></div><div class="gpu-fan"></div>
+                <div class="absolute bottom-1 right-3 text-[10px] text-slate-300 font-mono bg-black/50 px-2 rounded">${item.name}</div>
+            `;
+        } else if (item.type === 'ram') {
+            innerHTML = `<div class="w-1.5 h-[90%] bg-yellow-400 rounded-full shadow-[0_0_12px_rgba(250,204,21,0.9)]"></div>`;
+        } else if (item.type === 'cpu') {
+            innerHTML = `<span class="text-sm tracking-wider font-extrabold text-slate-800 drop-shadow-sm">${item.img}</span>`;
+        } else {
+            innerHTML = `<span>${item.img}</span>`;
+        }
+        
+        el.innerHTML = innerHTML;
+
+        // Tooltips for parts
+        el.addEventListener('mouseenter', () => {
+            tooltip.innerHTML = `
+                <div class="font-bold text-[13px] mb-1">${item.name}</div>
+                <div class="text-neon flex justify-between"><span>Price:</span> <span>₹${item.price.toLocaleString('en-IN')}</span></div>
+                ${item.wattage ? `<div class="text-slate-400 flex justify-between"><span>Power:</span> <span>${item.wattage}W</span></div>` : ''}
+            `;
+            tooltip.style.opacity = '1';
+        });
+        el.addEventListener('mouseleave', () => tooltip.style.opacity = '0');
+
+        // Remove Button (Except Mobo, which is handled via fixed button on zone)
+        if (item.type !== 'motherboard') {
+            const removeBtn = document.createElement('button');
+            removeBtn.className = 'remove-btn';
+            removeBtn.innerHTML = '✕';
+            removeBtn.onclick = (e) => { e.stopPropagation(); uninstallPart(item.type, index); };
+            el.appendChild(removeBtn);
+        }
+
+        // DOM insertion
+        if (item.type === 'motherboard') {
+            zone.insertBefore(el, document.getElementById('inner-slots'));
+        } else {
+            zone.appendChild(el);
+        }
+    }
+
+    window.uninstallPart = function(type, index) {
+        tooltip.style.opacity = '0';
+        
+        if (type === 'motherboard') {
+            // Cascading uninstalls
+            ['cpu', 'gpu', 'storage'].forEach(t => uninstallPart(t, null));
+            for(let i=0; i<4; i++) uninstallPart('ram', i);
+            
+            buildState.motherboard = null;
+            moboZone.classList.remove('has-mobo', 'has-item');
+            const moboVisual = moboZone.querySelector('.part-mobo');
+            if(moboVisual) moboVisual.remove();
+        } 
+        else if (type === 'ram') {
+            buildState.ram[index] = null;
+            const zone = document.querySelector(`.slot-ram[data-index="${index}"]`);
+            if(zone) { zone.innerHTML = ''; zone.classList.remove('has-item'); }
+        } 
+        else {
+            buildState[type] = null;
+            const zone = document.getElementById(`slot-${type}`);
+            if(zone) { zone.innerHTML = ''; zone.classList.remove('has-item'); }
+        }
+
+        updateHUD();
+        renderCatalog();
+    }
+
+    function resetBuild() {
+        // 1. Reset state completely
+        buildState = { motherboard: null, cpu: null, ram: [null, null, null, null], gpu: null, storage: null, psu: null };
+        
+        // 2. Reset motherboard zone back to empty target (preserving inner slots structure)
+        moboZone.classList.remove('has-mobo', 'has-item');
+        const moboVisual = moboZone.querySelector('.part-mobo');
+        if(moboVisual) moboVisual.remove();
+
+        // 3. Clear all other individual slots
+        ['cpu', 'storage', 'gpu', 'psu'].forEach(type => {
+            const zone = document.getElementById(`slot-${type}`);
+            if(zone) { 
+                zone.innerHTML = ''; 
+                zone.classList.remove('has-item'); 
+            }
+        });
+
+        // 4. Clear all RAM slots
+        for(let i=0; i<4; i++) {
+            const zone = document.querySelector(`.slot-ram[data-index="${i}"]`);
+            if(zone) { 
+                zone.innerHTML = ''; 
+                zone.classList.remove('has-item'); 
+            }
+        }
+
+        // 5. Hide tooltips and reset UI
+        tooltip.style.opacity = '0';
+        updateHUD();
+        renderCatalog();
+    }
+
+    // --- HUD Updates ---
+    function updateHUD() {
+        let cost = 0, watt = 0;
+        let maxWatt = buildState.psu ? buildState.psu.maxWattage : 0;
+
+        const parts = [buildState.motherboard, buildState.cpu, buildState.gpu, buildState.storage, buildState.psu, ...buildState.ram].filter(Boolean);
+
+        parts.forEach(p => { cost += p.price; watt += (p.wattage || 0); });
+
+        document.getElementById('hud-price').textContent = `₹ ${cost.toLocaleString('en-IN')}`;
+        document.getElementById('hud-watt-current').textContent = watt;
+        document.getElementById('hud-watt-max').textContent = maxWatt;
+
+        const wattEl = document.getElementById('hud-watt-current');
+        if (maxWatt > 0 && watt > maxWatt * 0.9) wattEl.className = 'text-red-500 font-bold';
+        else if (maxWatt > 0 && watt > maxWatt * 0.7) wattEl.className = 'text-yellow-400';
+        else wattEl.className = 'text-white';
+
+        const statusEl = document.getElementById('hud-status');
+        if (!buildState.motherboard) {
+            statusEl.textContent = "Awaiting Motherboard...";
+            statusEl.className = "text-xs font-mono text-slate-400 bg-slate-800 p-2 rounded";
+        } else if (!buildState.cpu) {
+            statusEl.textContent = `Socket: ${buildState.motherboard.socket} | Awaiting CPU`;
+            statusEl.className = "text-xs font-mono text-yellow-400 bg-yellow-400/10 border border-yellow-400/20 p-2 rounded";
+        } else if (!buildState.psu) {
+            statusEl.textContent = "Awaiting Power Supply";
+            statusEl.className = "text-xs font-mono text-yellow-400 bg-yellow-400/10 border border-yellow-400/20 p-2 rounded";
+        } else if (maxWatt < watt) {
+            statusEl.textContent = "CRITICAL: PSU Underpowered!";
+            statusEl.className = "text-xs font-mono text-red-400 bg-red-500/20 border border-red-500/40 p-2 rounded animate-pulse";
+        } else {
+            statusEl.textContent = "System Ready to Boot!";
+            statusEl.className = "text-xs font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 p-2 rounded";
+        }
+    }
+
+    init();
+</script>
+</body>
+</html>
